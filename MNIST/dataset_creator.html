@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MNIST Multi-Digit Drawing Tool</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 1100px; margin: 20px auto; padding: 10px; background: #f5f5f5; }
+        .container { background: white; border: 1px solid #ccc; padding: 20px; }
+        h1 { color: #000; margin-bottom: 5px; font-size: 24px; }
+        .subtitle { color: #666; margin-bottom: 20px; font-size: 14px; }
+        .main-content { display: flex; gap: 20px; }
+        .drawing-section { flex: 1; }
+        .recorded-section { flex: 1; max-height: 600px; overflow-y: auto; border-left: 1px solid #ddd; padding-left: 20px; }
+        .canvas-container { display: flex; gap: 30px; margin-bottom: 15px; }
+        .canvas-wrapper { display: inline-block; }
+        canvas { border: 1px solid #000; cursor: crosshair; background: white; }
+        #drawCanvas { width: 280px; height: 280px; }
+        #mnistCanvas { width: 140px; height: 140px; image-rendering: pixelated; }
+        .controls { margin-bottom: 15px; }
+        button { padding: 8px 15px; font-size: 14px; border: 1px solid #999; background: #fff; cursor: pointer; margin-right: 5px; margin-bottom: 5px; }
+        button:hover { background: #f0f0f0; }
+        .btn-primary { background: #4169E1; color: white; border-color: #4169E1; }
+        .btn-primary:hover { background: #1E90FF; }
+        .btn-secondary { background: #ddd; color: #000; }
+        .btn-secondary:hover { background: #ccc; }
+        .btn-success { background: #228B22; color: white; border-color: #228B22; }
+        .btn-success:hover { background: #32CD32; }
+        .btn-danger { background: #DC143C; color: white; border-color: #DC143C; }
+        .btn-danger:hover { background: #FF6347; }
+        .instructions { background: #ffffcc; border: 1px solid #ccc; padding: 10px; margin-bottom: 15px; font-size: 13px; }
+        .instructions h3 { margin-top: 0; color: #000; font-size: 14px; }
+        .instructions ol { margin: 5px 0; padding-left: 25px; }
+        .instructions li { margin: 3px 0; }
+        .instructions code { background: #f0f0f0; padding: 1px 3px; font-family: monospace; }
+        .label { font-size: 13px; color: #333; margin-bottom: 3px; }
+        .recorded-digits { background: #fafafa; border: 1px solid #ddd; padding: 10px; }
+        .recorded-digits h3 { margin-top: 0; color: #000; font-size: 14px; }
+        .digit-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+        .digit-item { background: white; border: 1px solid #999; padding: 4px; text-align: center; position: relative; }
+        .digit-item canvas { width: 56px; height: 56px; image-rendering: pixelated; border: 1px solid #ccc; }
+        .digit-item .digit-label { font-size: 11px; color: #666; margin-top: 2px; }
+        .digit-item .delete-btn { position: absolute; top: -5px; right: -5px; background: red; color: white; border: none; width: 18px; height: 18px; font-size: 12px; cursor: pointer; display: none; }
+        .digit-item:hover .delete-btn { display: block; }
+        #status { padding: 8px; margin-top: 15px; display: none; border: 1px solid; }
+        #status.success { background: #d4edda; color: #155724; border-color: #c3e6cb; display: block; }
+        #status.info { background: #d1ecf1; color: #0c5460; border-color: #bee5eb; display: block; }
+        #status.warning { background: #fff3cd; color: #856404; border-color: #ffeeba; display: block; }
+        .counter { font-size: 16px; color: #333; font-weight: bold; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>MNIST Drawing Tool</h1>
+        <p class="subtitle">Draw digits and save as MNIST format</p>
+        <div class="main-content">
+            <div class="drawing-section">
+                <div class="instructions">
+                    <h3>Instructions:</h3>
+                    <ol>
+                        <li>Draw a digit (0-9) in the canvas</li>
+                        <li>Click "Add Digit" to record it</li>
+                        <li>Repeat for as many digits as you want</li>
+                        <li>Click "Save as MNIST" to download the file</li>
+                        <li>Test with: <code>./mnist_example --test digits.dat</code></li>
+                    </ol>
+                </div>
+                <div class="canvas-container">
+                    <div class="canvas-wrapper">
+                        <div class="label">Draw Here (280x280)</div>
+                        <canvas id="drawCanvas" width="280" height="280"></canvas>
+                    </div>
+                    <div class="canvas-wrapper">
+                        <div class="label">MNIST Preview (28x28)</div>
+                        <canvas id="mnistCanvas" width="28" height="28"></canvas>
+                    </div>
+                </div>
+                <div class="controls">
+                    <button class="btn-secondary" onclick="clearCanvas()">Clear</button>
+                    <button class="btn-success" onclick="addDigit()">Add Digit</button>
+                </div>
+                <div class="counter">Digits Recorded: <span id="digitCount">0</span></div>
+                <div class="controls">
+                    <button class="btn-danger" onclick="clearAllDigits()">Clear All</button>
+                    <button class="btn-success" onclick="saveAllAsMNIST()" id="saveBtn" disabled>Save as MNIST</button>
+                </div>
+            </div>
+            <div class="recorded-section">
+                <div class="recorded-digits">
+                    <h3>Recorded Digits</h3>
+                    <div id="digitGrid" class="digit-grid"></div>
+                </div>
+            </div>
+        </div>
+        <div id="status"></div>
+    </div>
+
+    <script>
+        const drawCanvas = document.getElementById('drawCanvas');
+        const drawCtx = drawCanvas.getContext('2d');
+        const mnistCanvas = document.getElementById('mnistCanvas');
+        const mnistCtx = mnistCanvas.getContext('2d');
+        let isDrawing = false, lastX = 0, lastY = 0;
+        let recordedDigits = [];
+        
+        // Setup canvas
+        drawCtx.fillStyle = 'white';
+        drawCtx.fillRect(0, 0, 280, 280);
+        drawCtx.strokeStyle = 'black';
+        drawCtx.lineWidth = 15;
+        drawCtx.lineCap = 'round';
+        drawCtx.lineJoin = 'round';
+        
+        // Drawing events
+        drawCanvas.addEventListener('mousedown', e => {
+            isDrawing = true;
+            const rect = drawCanvas.getBoundingClientRect();
+            lastX = e.clientX - rect.left;
+            lastY = e.clientY - rect.top;
+        });
+        
+        drawCanvas.addEventListener('mousemove', e => {
+            if (!isDrawing) return;
+            const rect = drawCanvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            drawCtx.beginPath();
+            drawCtx.moveTo(lastX, lastY);
+            drawCtx.lineTo(x, y);
+            drawCtx.stroke();
+            lastX = x;
+            lastY = y;
+            updateMNISTPreview();
+        });
+        
+        ['mouseup', 'mouseout'].forEach(event => drawCanvas.addEventListener(event, () => isDrawing = false));
+        
+        // Touch support
+        drawCanvas.addEventListener('touchstart', e => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            drawCanvas.dispatchEvent(new MouseEvent('mousedown', {clientX: touch.clientX, clientY: touch.clientY}));
+        });
+        
+        drawCanvas.addEventListener('touchmove', e => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            drawCanvas.dispatchEvent(new MouseEvent('mousemove', {clientX: touch.clientX, clientY: touch.clientY}));
+        });
+        
+        drawCanvas.addEventListener('touchend', () => isDrawing = false);
+        
+        function clearCanvas() {
+            drawCtx.fillStyle = 'white';
+            drawCtx.fillRect(0, 0, 280, 280);
+            mnistCtx.fillStyle = 'white';
+            mnistCtx.fillRect(0, 0, 28, 28);
+            document.getElementById('status').style.display = 'none';
+        }
+        
+        function smoothDrawing() {
+            drawCtx.filter = 'blur(2px)';
+            drawCtx.drawImage(drawCanvas, 0, 0);
+            drawCtx.filter = 'none';
+            updateMNISTPreview();
+        }
+        
+        function updateMNISTPreview() {
+            mnistCtx.drawImage(drawCanvas, 0, 0, 280, 280, 0, 0, 28, 28);
+        }
+        
+        function getMNISTData() {
+            const imageData = mnistCtx.getImageData(0, 0, 28, 28);
+            const pixels = [];
+            for (let i = 0; i < imageData.data.length; i += 4) {
+                const gray = 0.299 * imageData.data[i] + 0.587 * imageData.data[i + 1] + 0.114 * imageData.data[i + 2];
+                pixels.push(255 - gray);
+            }
+            return pixels;
+        }
+        
+        function addDigit() {
+            smoothDrawing(); // Auto-smooth
+            const pixels = getMNISTData();
+            if (pixels.reduce((a, b) => a + b, 0) < 1000) {
+                showStatus('Please draw a digit first!', 'warning');
+                return;
+            }
+            recordedDigits.push(pixels);
+            updateDigitDisplay();
+            clearCanvas();
+            showStatus(`Digit ${recordedDigits.length} added!`, 'success');
+            updateSaveButton();
+        }
+        
+        function updateDigitDisplay() {
+            const grid = document.getElementById('digitGrid');
+            grid.innerHTML = '';
+            recordedDigits.forEach((pixels, index) => {
+                const item = document.createElement('div');
+                item.className = 'digit-item';
+                const canvas = document.createElement('canvas');
+                canvas.width = canvas.height = 28;
+                const ctx = canvas.getContext('2d');
+                const imageData = ctx.createImageData(28, 28);
+                for (let i = 0; i < pixels.length; i++) {
+                    const val = 255 - pixels[i];
+                    imageData.data[i * 4] = imageData.data[i * 4 + 1] = imageData.data[i * 4 + 2] = val;
+                    imageData.data[i * 4 + 3] = 255;
+                }
+                ctx.putImageData(imageData, 0, 0);
+                const deleteBtn = document.createElement('button');
+                deleteBtn.className = 'delete-btn';
+                deleteBtn.innerHTML = '×';
+                deleteBtn.onclick = () => deleteDigit(index);
+                const label = document.createElement('div');
+                label.className = 'digit-label';
+                label.textContent = `#${index + 1}`;
+                item.appendChild(canvas);
+                item.appendChild(label);
+                item.appendChild(deleteBtn);
+                grid.appendChild(item);
+            });
+            document.getElementById('digitCount').textContent = recordedDigits.length;
+        }
+        
+        function deleteDigit(index) {
+            recordedDigits.splice(index, 1);
+            updateDigitDisplay();
+            updateSaveButton();
+            showStatus(`Digit removed`, 'info');
+        }
+        
+        function clearAllDigits() {
+            if (recordedDigits.length > 0 && confirm(`Clear all ${recordedDigits.length} recorded digits?`)) {
+                recordedDigits = [];
+                updateDigitDisplay();
+                updateSaveButton();
+                showStatus('All digits cleared', 'info');
+            }
+        }
+        
+        function updateSaveButton() {
+            document.getElementById('saveBtn').disabled = recordedDigits.length === 0;
+        }
+        
+        function saveAllAsMNIST() {
+            if (recordedDigits.length === 0) {
+                showStatus('No digits to save!', 'warning');
+                return;
+            }
+            const numImages = recordedDigits.length;
+            const buffer = new ArrayBuffer(16 + (784 * numImages));
+            const view = new DataView(buffer);
+            view.setUint32(0, 0x00000803, false);
+            view.setUint32(4, numImages, false);
+            view.setUint32(8, 28, false);
+            view.setUint32(12, 28, false);
+            let offset = 16;
+            for (const pixels of recordedDigits) {
+                for (let i = 0; i < pixels.length; i++) {
+                    view.setUint8(offset + i, Math.round(pixels[i]));
+                }
+                offset += 784;
+            }
+            const blob = new Blob([buffer], { type: 'application/octet-stream' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `user_digits.dat`;
+            a.click();
+            URL.revokeObjectURL(url);
+            showStatus(`Saved ${numImages} digit${numImages > 1 ? 's' : ''} to user_digits.dat`, 'success');
+        }
+        
+        function showStatus(message, type) {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = type;
+            status.style.display = 'block';
+            setTimeout(() => status.style.display = 'none', 3000);
+        }
+        
+        clearCanvas();
+        updateDigitDisplay();
+    </script>
+</body>
+</html>
